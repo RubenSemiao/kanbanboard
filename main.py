@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
 
-
 class Task:
     """
     Represents a task in the Kanban board.

@@ -4,7 +4,6 @@ import json
 from ttkthemes import ThemedTk
 from tkinter import font, Text, Menu
 
-
 class Task:
     """
     Represents a task in the Kanban board.
@@ -35,7 +34,6 @@ class Task:
         task.status = data["status"]
         return task
 
-
 class Column:
     """
     Represents a column in the Kanban board.
@@ -53,7 +51,6 @@ class Column:
                 self.tasks.remove(task)
                 return task
         return None
-
 
 class Board:
     """
@@ -89,28 +86,7 @@ class Board:
                 board.columns[column_name].add_task(Task.from_dict(task_data))
         return board
 
-
-class KanbanApp:
-    """
-    Main Kanban app.
-    """
-    def __init__(self):
-        self.board = Board()
-        self.root = ThemedTk(theme="arc")
-        self.root.title("Kanban Board")
-
-        self.root.geometry("900x700")
-        self.root.rowconfigure(1, weight=1)
-        self.root.columnconfigure(0, weight=1)
-
-        self.dragged_task = None
-        self.dragged_task_widget = None
-        self.from_column = None
-        self.clone_widget = None
-
-        self.setup_ui()
-        self.load_board()  # Load board automatically on startup
-
+class ui:
     def setup_ui(self):
         """
         Sets up the main UI components.
@@ -128,8 +104,8 @@ class KanbanApp:
         self.title_entry.grid(row=0, column=1, padx=5, sticky="ew")
 
         ttk.Label(top_frame, text="Description:").grid(row=0, column=2, padx=5, sticky="w")
-        self.description_entry = ttk.Entry(top_frame, width=30)
-        self.description_entry.grid(row=0, column=3, padx=5, sticky="ew")
+        self.description_text = ttk.Entry(top_frame, width=30)
+        self.description_text.grid(row=0, column=3, padx=5, sticky="ew")
 
         ttk.Label(top_frame, text="Priority:").grid(row=0, column=4, padx=5, sticky="w")
         self.priority_combobox = ttk.Combobox(top_frame, values=["Low", "Medium", "High"], width=10)
@@ -194,8 +170,6 @@ class KanbanApp:
             task_widget.bind("<ButtonRelease-1>", self.drop_task)
             task_widget.bind("<Double-Button-1>", lambda event, t=task: self.edit_task_window(t))
             task_widget.bind("<Button-3>", lambda event, t=task: self.show_context_menu(event, t))
-
-
 
     def start_drag(self, event, task, task_widget, from_column):
         """
@@ -272,24 +246,52 @@ class KanbanApp:
         """
         Adds a new task to the 'To Do' column.
         """
-        title = self.title_entry.get().strip()
-        description = self.description_entry.get().strip()
-        priority = self.priority_combobox.get()
+        
+        def newWindow():
+            """
+            Cria uma nova janela para entrada de dados da tarefa.
+            """
+            window = tk.Toplevel(self.root)  # Cria uma nova janela secundária
+            window.title("Nova Tarefa")
+            window.geometry("400x400")
 
-        if not title:
-            messagebox.showerror("Error", "Title is required!")
-            return
+            ttk.Label(window, text="Título:").pack(pady=5)
+            title_entry = ttk.Entry(window)
+            title_entry.pack(fill=tk.BOTH, padx=10, pady=5, expand=True)
 
-        new_task = Task(title, description, priority)
-        self.board.add_task(new_task)
-        self.update_column_ui("To Do")
+            ttk.Label(window, text="Descrição:").pack(pady=5)
+            description_text = Text(window, wrap=tk.WORD, height=5)
+            description_text.pack(fill=tk.BOTH, padx=10, pady=5, expand=True)
 
-        self.title_entry.delete(0, tk.END)
-        self.description_entry.delete(0, tk.END)
-        self.priority_combobox.set("Medium")
+            ttk.Label(window, text="Prioridade:").pack(pady=5)
+            priority_combobox = ttk.Combobox(window, values=["Low", "Medium", "High"], width=10)
+            priority_combobox.set("Medium")
+            priority_combobox.pack(pady=5)
 
-        # Salvar automaticamente após adicionar a tarefa
-        self.auto_save_board()
+            def save_task():
+                """
+                Salva a nova tarefa ao quadro.
+                """
+                title = title_entry.get().strip()
+                description = description_text.get("1.0", tk.END).strip()
+                priority = priority_combobox.get()
+
+                if not title:
+                    messagebox.showinfo("Campo em falta", "O título não foi introduzido.")
+                    return
+
+                new_task = Task(title, description, priority)
+                self.board.add_task(new_task)
+                self.update_column_ui("To Do")
+                self.auto_save_board()
+
+                # Fecha a janela após salvar a tarefa
+                window.destroy()
+
+            # Botão para salvar a tarefa
+            ttk.Button(window, text="Salvar Tarefa", command=save_task).pack(pady=20)
+
+        newWindow()
 
     def save_board(self):
         """
@@ -419,6 +421,28 @@ class KanbanApp:
         Runs the Tkinter main loop.
         """
         self.root.mainloop()
+
+class KanbanApp(ui):
+    """
+    Main Kanban app.
+    """
+    def __init__(self):
+        self.board = Board()
+        self.root = ThemedTk(theme="arc")
+        self.root.title("Kanban Board")
+
+        self.root.geometry("900x700")
+        self.root.rowconfigure(1, weight=1)
+        self.root.columnconfigure(0, weight=1)
+
+        self.dragged_task = None
+        self.dragged_task_widget = None
+        self.from_column = None
+        self.clone_widget = None
+
+        ui.setup_ui(self)
+        ui.load_board(self)  # Load board automatically on startup
+
 
 
 if __name__ == "__main__":

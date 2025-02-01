@@ -3,6 +3,8 @@ from tkinter import ttk, messagebox
 import json
 from ttkthemes import ThemedTk
 from tkinter import font, Text, Menu
+from tkcalendar import DateEntry # Biblioteca para calendário
+from datetime import datetime # Biblioteca para data e hora
 
 class Task:
     """
@@ -11,7 +13,7 @@ class Task:
     def __init__(self, title: str, description: str, priority: str = "Medium", deadline: str = None):
         self.title = title
         self.description = description
-        self.status = "To Do"
+        self.status = "Para fazer"
         self.priority = priority
         self.deadline = deadline
 
@@ -21,17 +23,17 @@ class Task:
 
     def to_dict(self):
         return {
-            "title": self.title,
-            "description": self.description,
-            "status": self.status,
-            "priority": self.priority,
+            "Titulo": self.title,
+            "Descrição": self.description,
+            "Estado": self.status,
+            "Prioridade": self.priority,
             "deadline": self.deadline
         }
 
     @staticmethod
     def from_dict(data):
-        task = Task(data["title"], data["description"], data["priority"], data.get("deadline"))
-        task.status = data["status"]
+        task = Task(data["Titulo"], data["Descrição"], data["Prioridade"], data.get("deadline"))
+        task.status = data["Estado"]
         return task
 
 class Column:
@@ -58,13 +60,14 @@ class Board:
     """
     def __init__(self):
         self.columns = {
-            "To Do": Column("To Do"),
-            "In Progress": Column("In Progress"),
-            "Done": Column("Done")
+            "Para fazer": Column("Para fazer"),
+            "Em Progresso": Column("Em Progresso"),
+            "Completo": Column("Completo"),
+            "Arquivado": Column("Arquivado")
         }
 
     def add_task(self, task: Task):
-        self.columns["To Do"].add_task(task)
+        self.columns["Para fazer"].add_task(task)
 
     def move_task(self, task_title: str, from_column: str, to_column: str) -> bool:
         if from_column in self.columns and to_column in self.columns:
@@ -91,49 +94,49 @@ class ui:
         """
         Sets up the main UI components.
         """
-        # Top Frame for task input
+        # 
         top_frame = ttk.Frame(self.root)
         top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+
+        button_frame = ttk.Frame(top_frame)
+        button_frame.grid(row=1, column=0, sticky="ew", columnspan=10, pady=10)
+
+        button_frame.columnconfigure((0, 1, 2), weight=1)
+
+        buttons = [
+            ("Adicionar tarefa", self.add_task),
+            ("Carregar quadro", self.load_board)
+        ]
+
+        for i, (text, command) in enumerate(buttons):
+            ttk.Button(button_frame, text=text, command=command).grid(row=0, column=i, padx=5, pady=5)
+
+        # Mostrar data e hora
+
+        current_date = datetime.now().strftime("%d/%m/%Y")
+        date_label = ttk.Label(top_frame, text=f"Data: \n{current_date}", font=("Arial", 12, "bold"), foreground="#4A4A4A")
+        date_label.grid(row=1, column=10, padx=10, sticky="e")
         
-        top_frame.columnconfigure(1, weight=1)
-        top_frame.columnconfigure(3, weight=2)
-        top_frame.columnconfigure(5, weight=1)
+        
+        # Frame para os quadros
 
-        ttk.Label(top_frame, text="Title:").grid(row=0, column=0, padx=5, sticky="w")
-        self.title_entry = ttk.Entry(top_frame, width=20)
-        self.title_entry.grid(row=0, column=1, padx=5, sticky="ew")
-
-        ttk.Label(top_frame, text="Description:").grid(row=0, column=2, padx=5, sticky="w")
-        self.description_text = ttk.Entry(top_frame, width=30)
-        self.description_text.grid(row=0, column=3, padx=5, sticky="ew")
-
-        ttk.Label(top_frame, text="Priority:").grid(row=0, column=4, padx=5, sticky="w")
-        self.priority_combobox = ttk.Combobox(top_frame, values=["Low", "Medium", "High"], width=10)
-        self.priority_combobox.set("Medium")
-        self.priority_combobox.grid(row=0, column=5, padx=5, sticky="w")
-
-        add_task_button = ttk.Button(top_frame, text="Add Task", command=self.add_task)
-        add_task_button.grid(row=0, column=6, padx=5, sticky="w")
-
-        save_button = ttk.Button(top_frame, text="Save Board", command=self.save_board)
-        save_button.grid(row=0, column=7, padx=5, sticky="w")
-
-        load_button = ttk.Button(top_frame, text="Load Board", command=self.load_board)
-        load_button.grid(row=0, column=8, padx=5, sticky="w")
-
-        # Main frame for boards
         self.board_frame = ttk.Frame(self.root)
-        self.board_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
-        self.board_frame.columnconfigure((0, 1, 2), weight=1)
+        self.board_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.board_frame.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self.column_frames = {}
-        for i, column_name in enumerate(self.board.columns):
-            frame = ttk.Frame(self.board_frame, relief=tk.RIDGE, borderwidth=2)
+        self.column_frames = {
+            column_name: ttk.Frame(self.board_frame, relief=tk.RIDGE, borderwidth=0)
+            for i, column_name in enumerate(self.board.columns)
+        }
+
+        for i, (column_name, frame) in enumerate(self.column_frames.items()):
             frame.grid(row=0, column=i, sticky="nsew", padx=5, pady=5)
-            self.column_frames[column_name] = frame
-
             self.update_column_ui(column_name)
 
+        top_frame.columnconfigure(0, weight=1)
+        top_frame.columnconfigure(5, weight=1)
+        
+        
     def update_column_ui(self, column_name: str):
         """
         Updates the UI for a specific column.
@@ -244,7 +247,7 @@ class ui:
 
     def add_task(self):
         """
-        Adds a new task to the 'To Do' column.
+        Adds a new task to the 'Para fazer' column.
         """
         
         def newWindow():
@@ -253,7 +256,7 @@ class ui:
             """
             window = tk.Toplevel(self.root)  # Cria uma nova janela secundária
             window.title("Nova Tarefa")
-            window.geometry("400x400")
+            window.geometry("500x500")
 
             ttk.Label(window, text="Título:").pack(pady=5)
             title_entry = ttk.Entry(window)
@@ -267,6 +270,10 @@ class ui:
             priority_combobox = ttk.Combobox(window, values=["Low", "Medium", "High"], width=10)
             priority_combobox.set("Medium")
             priority_combobox.pack(pady=5)
+
+            ttk.Label(window, text="Deadline:").pack(pady=5)
+            deadline = DateEntry(window, width=20, background="blue", foreground="white", borderwidth=2)
+            deadline.pack(pady=15)
 
             def save_task():
                 """
@@ -282,7 +289,7 @@ class ui:
 
                 new_task = Task(title, description, priority)
                 self.board.add_task(new_task)
-                self.update_column_ui("To Do")
+                self.update_column_ui("Para fazer")
                 self.auto_save_board()
 
                 # Fecha a janela após salvar a tarefa
@@ -292,17 +299,6 @@ class ui:
             ttk.Button(window, text="Salvar Tarefa", command=save_task).pack(pady=20)
 
         newWindow()
-
-    def save_board(self):
-        """
-        Saves the current state of the board to a JSON file.
-        """
-        try:
-            with open("kanban_board.json", "w") as file:
-                json.dump(self.board.to_dict(), file, indent=4)
-            messagebox.showinfo("Save Board", "Board saved successfully!")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save board: {e}")
 
     def auto_save_board(self):
         """
@@ -335,25 +331,29 @@ class ui:
         Opens a window to edit the title, description, and priority of a task.
         """
         edit_window = tk.Toplevel(self.root)
-        edit_window.title("Edit Task")
-        edit_window.geometry("400x400")
+        edit_window.title("Editar Tarefa")
+        edit_window.geometry("500x500")
 
-        ttk.Label(edit_window, text="Title:").pack(pady=5)
+        ttk.Label(edit_window, text="Título:").pack(pady=5)
         title_entry = ttk.Entry(edit_window)
         title_entry.pack(fill=tk.X, padx=10)
         title_entry.insert(0, task.title)
 
-        ttk.Label(edit_window, text="Description:").pack(pady=5)
+        ttk.Label(edit_window, text="Descrição:").pack(pady=5)
         description_text = Text(edit_window, wrap=tk.WORD, height=10)
         description_text.pack(fill=tk.BOTH, padx=10, pady=5)
         description_text.insert(1.0, task.description)
 
-        ttk.Label(edit_window, text="Priority:").pack(pady=5)
+        ttk.Label(edit_window, text="Prioridade:").pack(pady=5)
         priority_combobox = ttk.Combobox(edit_window, values=["Low", "Medium", "High"])
         priority_combobox.pack(padx=10)
         priority_combobox.set(task.priority)
 
-        save_button = ttk.Button(edit_window, text="Save Changes", command=lambda: self.save_task_changes(task, title_entry, description_text, priority_combobox, edit_window))
+        ttk.Label(edit_window, text="Deadline:").pack(pady=5)
+        deadline = DateEntry(edit_window, width=20, background="blue", foreground="white", borderwidth=2)
+        deadline.pack(pady=15)
+
+        save_button = ttk.Button(edit_window, text="Salvar Alterações", command=lambda: self.save_task_changes(task, title_entry, description_text, priority_combobox, edit_window))
         save_button.pack(pady=10)
 
     def save_task_changes(self, task, title_entry, description_text, priority_combobox, window):
@@ -374,9 +374,9 @@ class ui:
         Shows a context menu for the task with options to edit, set priority, or remove.
         """
         context_menu = Menu(self.root, tearoff=0)
-        context_menu.add_command(label="Edit", command=lambda: self.edit_task_window(task))
-        context_menu.add_command(label="Set Priority", command=lambda: self.set_task_priority(task))
-        context_menu.add_command(label="Remove", command=lambda: self.remove_task(task))
+        context_menu.add_command(label="Editar", command=lambda: self.edit_task_window(task))
+        context_menu.add_command(label="Definir Prioridade", command=lambda: self.set_task_priority(task))
+        context_menu.add_command(label="Remover", command=lambda: self.remove_task(task))
         context_menu.post(event.x_root, event.y_root)
 
     def set_task_priority(self, task):
@@ -384,15 +384,15 @@ class ui:
         Opens a dialog to set the priority of a task.
         """
         priority_window = tk.Toplevel(self.root)
-        priority_window.title("Set Task Priority")
+        priority_window.title("Definir Prioridade da Tarefa")
         priority_window.geometry("300x150")
 
-        ttk.Label(priority_window, text="Select Priority:").pack(pady=10)
-        priority_combobox = ttk.Combobox(priority_window, values=["Low", "Medium", "High"])
+        ttk.Label(priority_window, text="Selecionar prioridade:").pack(pady=10)
+        priority_combobox = ttk.Combobox(priority_window, values=["Baixa", "Media", "Alta"])
         priority_combobox.pack(padx=10)
         priority_combobox.set(task.priority)
 
-        set_button = ttk.Button(priority_window, text="Set", command=lambda: self.save_task_priority(task, priority_combobox, priority_window))
+        set_button = ttk.Button(priority_window, text="Definir", command=lambda: self.save_task_priority(task, priority_combobox, priority_window))
         set_button.pack(pady=10)
 
     def save_task_priority(self, task, priority_combobox, window):
@@ -442,8 +442,6 @@ class KanbanApp(ui):
 
         ui.setup_ui(self)
         ui.load_board(self)  # Load board automatically on startup
-
-
 
 if __name__ == "__main__":
     app = KanbanApp()

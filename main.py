@@ -4,12 +4,13 @@ import json
 from ttkthemes import ThemedTk
 from tkcalendar import DateEntry # Biblioteca para calendário
 from datetime import datetime # Biblioteca para data e hora
+from plyer import notification # Biblioteca para notificações
 
 class Task:
     """
     Represents a task in the Kanban board.
     """
-    def __init__(self, title: str, description: str, priority: str = "Medium", deadline: str = None):
+    def __init__(self, title: str, description: str, priority: str = "Médio", deadline: str = None):
         self.title = title
         self.description = description
         self.status = "Para fazer"
@@ -26,12 +27,25 @@ class Task:
             "Descrição": self.description,
             "Estado": self.status,
             "Prioridade": self.priority,
-            "deadline": self.deadline
+            "deadline": datetime.strptime(self.deadline, "%m/%d/%y").strftime("%m/%d/%y") if self.deadline else None
         }
 
     @staticmethod
     def from_dict(data):
         return Task(data["Titulo"], data["Descrição"], data["Prioridade"], data.get("deadline"))
+    
+    def get_deadline_date(self):
+        """
+        Converte a string 'deadline' para um objeto datetime.date.
+        Retorna None se a conversão falhar.
+        """
+        if not self.deadline:
+            return None
+        try:
+            return datetime.strptime(self.deadline, "%m/%d/%y").date()  # ✅ Corrige o erro de conversão
+        except ValueError:
+            print(f"⚠️ Erro ao processar a data da tarefa '{self.title}': {self.deadline}")
+            return None
 
 class Column:
     """
@@ -66,7 +80,7 @@ class Board:
         }
 
     def add_task(self, task: Task):
-        self.columns["Para fazer"].append(task)
+        self.columns["Para fazer"].add_task(task)
 
     def move_task(self, task_title: str, from_column: str, to_column: str) -> bool:
         if from_column in self.columns and to_column in self.columns:
@@ -76,6 +90,10 @@ class Board:
                 self.columns[to_column].add_task(task_to_move)
                 return True
         return False
+
+        print(f"Erro: Uma das colunas '{from_column}' ou '{to_column}' não existe.")
+        return False
+
 
     def to_dict(self):
         return {column_name: [task.to_dict() for task in column.tasks] for column_name, column in self.columns.items()}
@@ -92,35 +110,73 @@ class TaskAlert: # Nova tarefa para alerta de prazo
     """
     Represents a task alert.
     """
-    def __init__(self, board, days_before_alert=5):
+    def __init__(self, board, days_before_alert=10): # Adiciona um novo parâmetro para definir os dias antes do alerta
         self.board = board
         self.days_before_alert = days_before_alert
+    
+    def load_tasks_from_json(self):
+        """
+        Lê o JSON e retorna uma lista de tarefas que possuem deadline.
+        """
+        try:
+            with open("kanban_board.json", "r") as file:
+                data = json.load(file)
+                tasks_with_deadline = []
+
+                for column_tasks in data.values():  # Itera diretamente sobre os valores do JSON
+                    for task_data in column_tasks:
+                        task = Task.from_dict(task_data)
+                        if task.deadline:  # Só adiciona tarefas com prazo
+                            tasks_with_deadline.append(task)
+
+                return tasks_with_deadline  # ✅ Retorna apenas as tarefas relevantes
+        except FileNotFoundError:
+            print("⚠️ Arquivo JSON não encontrado.")
+            return []
+        except Exception as e:
+            print(f"❌ Erro ao carregar tarefas do JSON: {e}")
+            return []
 
     def check_deadlines(self):
         """
         Percorre todas as tarefas do quadro e verifica se alguma está próxima do prazo definido.
         """
-        today = datetime.today()
-        for column in self.board.columns.values():
-            for task in column.tasks:
-                if task.deadline and isinstance(task.deadline, str) and task.deadline.strip():
-                    print(f"Verificando prazo da tarefa: {task.title} - {task.deadline}")
-                    try:
-                        deadline_date = datetime.datetime.strptime(task.deadline, "%d/%m/%Y").date()
-                        days_remaining = (deadline_date - today).days
+        today = datetime.today().date()  # ✅ Converte para 'date' corretamente
+        tasks_with_deadline = self.load_tasks_from_json()  # ✅ Carrega direto do JSON
 
-                        if 0 <= days_remaining <= self.days_before_alert:
-                            self.show_alert(task.title, days_remaining)
-                    except ValueError:
-                        print(f"Erro ao processar a data da tarefa: {task.title}")
+        for task in tasks_with_deadline:
+            deadline_date = task.get_deadline_date()  # ✅ Método que converte a string
+
+            if deadline_date:
+                days_remaining = (deadline_date - today).days
+
+                print(f"🔍 Verificando: {task.title} (Prazo: {task.deadline}, Restam: {days_remaining} dias)")
+
+                if 0 <= days_remaining <= self.days_before_alert:
+                    print(f"🚨 ALERTA: '{task.title}' está prestes a vencer!")
+                    self.show_alert(task.title, days_remaining)
 
     def show_alert(self, task_title, days_remaining):
         """
         Exibe um alerta informando quantos dias faltam para o prazo da tarefa.
         """
         message = f"A tarefa '{task_title}' está prestes a vencer! Faltam {days_remaining} dia(s)."
-        messagebox.showwarning("Alerta de Prazo", message)       
 
+        print(f"🔔 Tentando exibir notificação: {task_title} ({days_remaining} dias restantes)")
+
+        # Notificação nativa do Windows
+        try:
+            notification.notify(
+                title="Alerta de Prazo",
+                message=message,
+                app_name="Kanban Board",
+                timeout=10  # Duração da notificação em segundos
+            )
+            print("✅ Notificação enviada com sucesso.")
+        except Exception as e:
+            print(f"❌ Erro ao exibir notificação: {e}")
+            messagebox.showwarning("Alerta de Prazo", message)
+        
 class ui:
     def setup_ui(self):
         """
@@ -144,25 +200,29 @@ class ui:
             ttk.Button(button_frame, text=text, command=command).grid(row=0, column=i, padx=5, pady=5)
 
         # Mostrar data e hora
-
         current_date = datetime.now().strftime("%d/%m/%Y")
         ttk.Label(top_frame, text=f"Data: \n{current_date}", font=("Arial", 12, "bold"), foreground="#4A4A4A").grid(row=1, column=10, padx=10, sticky="e")
         
         
         # Frame para os quadros
-
         self.board_frame = ttk.Frame(self.root)
         self.board_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         self.board_frame.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self.column_frames = {
-            column_name: ttk.Frame(self.board_frame, relief=tk.RIDGE, borderwidth=0)
-            for i, column_name in enumerate(self.board.columns)
-        }
+        self.column_frames = {}
+
+        for column_name in self.board.columns:
+            frame = ttk.Frame(self.board_frame, relief=tk.RIDGE, borderwidth=0)
+            frame.column_name = column_name  # Define explicitamente a propriedade column_name
+            self.column_frames[column_name] = frame
+
 
         for i, (column_name, frame) in enumerate(self.column_frames.items()):
             frame.grid(row=0, column=i, sticky="nsew", padx=5, pady=5)
-            self.update_column_ui(column_name)
+            for column_name, frame in self.column_frames.items():
+                frame.column_name = column_name  # Atribui o nome da coluna ao frame          
+            
+                self.update_column_ui(column_name)
 
         top_frame.columnconfigure(0, weight=1)
         top_frame.columnconfigure(5, weight=1)
@@ -184,19 +244,30 @@ class ui:
             task_widget = ttk.Frame(task_container, relief=tk.RAISED, padding=5, style="Card.TFrame")
             task_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-            ttk.Label(task_widget, text=task.title, font=("Helvetica", 14, "bold"), foreground="#333333").pack(anchor="w")
+            title_label = ttk.Label(task_widget, text=task.title, font=("Helvetica", 14, "bold"), foreground="#333333")
+            title_label.pack(anchor="w")
+            
+            desc_label = ttk.Label(task_widget, text=task.description, font=("Helvetica", 10), foreground="#555555", wraplength=250, justify="left")
+            desc_label.pack(anchor="w", pady=(0, 5))
 
-            ttk.Label(task_widget, text=task.description, font=("Helvetica", 10), foreground="#555555", wraplength=250, justify="left").pack(anchor="w", pady=(0, 5))
+            for label in [title_label, desc_label]:
+                label.bind("<ButtonPress-1>", lambda event, t=task, w=task_widget, c=column_name: self.start_drag(event, t, w, c))
+                label.bind("<B1-Motion>", self.drag_motion)
+                label.bind("<ButtonRelease-1>", self.drop_task)
 
-            priority_color = "#FF0000" if task.priority == "High" else "#b3b300" if task.priority == "Medium" else "#00b300" if task.priority == "Low" else "#008000"
-            ttk.Label(task_widget, text=f"Priority: {task.priority}", font=("Helvetica", 9, "italic"), foreground=priority_color).pack(anchor="w")
+          
+            priority_color = "#FF0000" if task.priority == "Alta" else "#b3b300" if task.priority == "Médio" else "#FFEA00" if task.priority == "Baixo" else "#008000"
+            ttk.Label(task_widget, text=f"Prioridade: {task.priority}", font=("Helvetica", 9, "italic"), foreground=priority_color).pack(anchor="w")
 
             if task.deadline:
                 ttk.Label(task_widget, text=f"Deadline: {task.deadline}", font=("Helvetica", 9, "italic"), foreground="#777777").pack(anchor="w")
 
-        for col in self.column_frames.values():
-            col.update()
-
+            task_widget.bind("<ButtonPress-1>", lambda event, t=task, w=task_widget, c=column_name: self.start_drag(event, t, w, c))
+            task_widget.bind("<B1-Motion>", self.drag_motion)
+            task_widget.bind("<ButtonRelease-1>", self.drop_task)
+            task_widget.bind("<Double-Button-1>", lambda event, t=task: self.edit_task_window(t))
+            task_widget.bind("<Button-3>", lambda event, t=task: self.show_context_menu(event, t))
+            
 
     def add_task(self):
         """
@@ -220,8 +291,8 @@ class ui:
             description_text.pack(fill=tk.BOTH, padx=10, pady=5, expand=True)
 
             ttk.Label(window, text="Prioridade:").pack(pady=5)
-            priority_combobox = ttk.Combobox(window, values=["Low", "Medium", "High"], width=10)
-            priority_combobox.set("Medium")
+            priority_combobox = ttk.Combobox(window, values=["Baixo", "Médio", "Alta"], width=10)
+            priority_combobox.set("Médio")
             priority_combobox.pack(pady=5)
 
             ttk.Label(window, text="Deadline:").pack(pady=5)
@@ -241,7 +312,7 @@ class ui:
                     messagebox.showinfo("Campo em falta", "O título não foi introduzido.")
                     return
 
-                new_task = Task(title, description, priority)
+                new_task = Task(title, description, priority, deadline_date)
                 self.board.add_task(new_task)
                 self.update_column_ui("Para fazer")
                 self.auto_save_board()
@@ -299,7 +370,7 @@ class ui:
         description_text.insert(1.0, task.description)
 
         ttk.Label(edit_window, text="Prioridade:").pack(pady=5)
-        priority_combobox = ttk.Combobox(edit_window, values=["Low", "Medium", "High"])
+        priority_combobox = ttk.Combobox(edit_window, values=["Baixo", "Médio", "Alta"])
         priority_combobox.pack(padx=10)
         priority_combobox.set(task.priority)
 
@@ -326,16 +397,6 @@ class ui:
         self.load_board()
         self.schedule_alerts()
 
-    def show_context_menu(self, event, task):
-        """
-        Shows a context menu for the task with options to edit, set priority, or remove.
-        """
-        context_menu = Menu(self.root, tearoff=0)
-        context_menu.add_command(label="Editar", command=lambda: self.edit_task_window(task))
-        context_menu.add_command(label="Definir Prioridade", command=lambda: self.set_task_priority(task))
-        context_menu.add_command(label="Remover", command=lambda: self.remove_task(task))
-        context_menu.post(event.x_root, event.y_root)
-
     def set_task_priority(self, task):
         """
         Opens a dialog to set the priority of a task.
@@ -345,7 +406,7 @@ class ui:
         priority_window.geometry("300x150")
 
         ttk.Label(priority_window, text="Selecionar prioridade:").pack(pady=10)
-        priority_combobox = ttk.Combobox(priority_window, values=["Baixa", "Media", "Alta"])
+        priority_combobox = ttk.Combobox(priority_window, values=["Baixa", "Médio", "Alta"])
         priority_combobox.pack(padx=10)
         priority_combobox.set(task.priority)
 
@@ -363,6 +424,33 @@ class ui:
         # Salvar automaticamente após a alteração da prioridade
         self.auto_save_board()
         self.load_board()
+    
+    def set_task_deadline(self, task):
+        """
+        Edita a janela para definir o prazo da tarefa.
+        """
+        deadline_window = tk.Toplevel(self.root)
+        deadline_window.title("Definir Prazo da Tarefa")
+        deadline_window.geometry("300x150")
+
+        ttk.Label(deadline_window, text="Selecionar prazo:").pack(pady=10)
+        deadline = DateEntry(deadline_window, width=20, background="blue", foreground="white", borderwidth=2)
+        deadline.pack(padx=10)
+
+        set_button = ttk.Button(deadline_window, text="Definir", command=lambda: self.save_task_deadline(task, deadline, deadline_window))
+        set_button.pack(pady=10)
+    
+    def save_task_deadline(self, task, deadline, window):
+        """
+        Salva o novo prazo para uma tarefa.
+        """
+        task.deadline = deadline.get()
+        window.destroy()
+        self.update_column_ui(task.status)
+
+        # Salvar automaticamente após a alteração do prazo
+        self.auto_save_board()
+        self.load_board()
 
     def remove_task(self, task):
         """
@@ -373,12 +461,24 @@ class ui:
 
         # Salvar automaticamente após remover a tarefa
         self.auto_save_board()
+    
+    def show_context_menu(self, event, task):
+        """
+        Shows a context menu for the task with options to edit, set priority, or remove.
+        """
+        context_menu = Menu(self.root, tearoff=0)
+        context_menu.add_command(label="Editar", command=lambda: self.edit_task_window(task))
+        context_menu.add_command(label="Definir Prioridade", command=lambda: self.set_task_priority(task))
+        context_menu.add_command(label="Remover", command=lambda: self.remove_task(task))
+        context_menu.add_command(label="Definir Prazo", command=lambda: self.set_task_deadline(task))
+        context_menu.post(event.x_root, event.y_root)
 
     def run(self):
         """
         Runs the Tkinter main loop.
         """
         self.root.mainloop()
+
 class KanbanApp(ui, TaskAlert):
     """
     Main Kanban app.
@@ -401,71 +501,108 @@ class KanbanApp(ui, TaskAlert):
         ui.setup_ui(self)
         ui.load_board(self)  # Load board automatically on startup
         self.schedule_alerts()
-    
-    def start_and_drop(self):
-        """
-        Inicia e solta a tarefa.
-        """
-
-        for column_name, column_frame in self.column_frames.items():
-            column_frame.bind("<DragEnter>", self.on_drag_enter)
-            column_frame.bind("DragLeave", self.on_drag_leave)
-            column_frame.bind("<Drop>", self.on_drop)
-
-    def on_drag_start(self, event):
-            """
-            Inicia o arrasto da tarefa e armazena a referência.
-            """
-            
-            widget = event.widget
-            self.dragged_task = widget.task
-            widget.configure(refief=tk.SUNKEN)
-
-    def on_drag_enter(self, event):
-            """
-            Destaca a coluna ao passar sobre ela.
-            """
-            event.widget.configure(relief=tk.RAISED)
-
-    def on_drag_leave(self, event):
-            """
-            Remove o destaque da coluna ao sair dela.
-            """
-            event.widget.configure(relief=tk.RIDGE)
-
-    def on_drop(self, event):
-            """
-            Finaliza o drop e move a tarefa para a nova coluna.
-            """
-            if not self.dragged_task:
-                return
-            
-            target_column = event.widget
-            column_name = target_column.column_name
-
-            # Remove a tarefa da coluna anterior
-            for col in self.board.columns.values():
-                if self.dragged_task in col.tasks:
-                    col.tasks.remove(self.dragged_task)
-                    break
-            
-            # Adiciona a tarefa à nova coluna
-            self.board.columns[column_name].append(self.dragged_task)
-
-            # Atualiza a interface do utilizador
-            self.update_column_ui(column_name)
-            
-            # Salvar automaticamente após a alteração
-            self.auto_save_board()
-            self.load_board()
 
     def schedule_alerts(self):
         """
         Schedules task alerts to check for upcoming deadlines.
         """
-        self.alert_system.check_deadlines()
-        self.root.after(86400000, self.check_deadlines)
+        print("Checking deadlines...")
+        try:
+            self.alert_system.check_deadlines()
+            print("check_deadlines executed successfully.")
+        except Exception as e:
+            print(f"Error in check_deadlines: {e}")
+        self.root.after(60000, self.schedule_alerts)
+    
+    def start_drag(self, event, task, task_widget, from_column):
+            """
+            Inicia o arrasto da tarefa e armazena a referência.
+            """
 
+            self.dragged_task = task
+            self.dragged_task_widget = event.widget
+            self.from_column = from_column  # ✅ Armazena a coluna original
+
+            # Criar um clone da tarefa visualmente
+            self.clone_widget = tk.Toplevel(self.root)
+            self.clone_widget.overrideredirect(True)  # Remove bordas da janela
+            
+            # Criar um Frame dentro do clone para parecer uma tarefa real
+            clone_frame = ttk.Frame(self.clone_widget, relief=tk.RAISED, padding=5, borderwidth=2)
+            clone_frame.pack(fill=tk.BOTH, expand=True)
+        
+            # Título da tarefa
+            ttk.Label(clone_frame, text=task.title, font=("Helvetica", 14, "bold"), foreground="#333333").pack(anchor="w")
+        
+            # Descrição da tarefa (sem cortes)
+            desc_label = ttk.Label(clone_frame, text=task.description, font=("Helvetica", 10), foreground="#555555", wraplength=250, justify="left")
+            desc_label.pack(anchor="w", pady=(0, 5))
+        
+            # Cor da prioridade
+            priority_color = "#FF0000" if task.priority == "Alta" else "#b3b300" if task.priority == "Médio" else "#FFEA00" if task.priority == "Baixo" else "#008000"
+            ttk.Label(clone_frame, text=f"Prioridade: {task.priority}", font=("Helvetica", 9, "italic"), foreground=priority_color).pack(anchor="w")
+        
+            if task.deadline:
+                ttk.Label(clone_frame, text=f"Deadline: {task.deadline}", font=("Helvetica", 9, "italic"), foreground="#777777").pack(anchor="w")
+        
+            # Atualizar layout antes de definir a geometria
+            self.clone_widget.update_idletasks()
+        
+            # Definir tamanho dinâmico com base no conteúdo
+            width = clone_frame.winfo_reqwidth()
+            height = clone_frame.winfo_reqheight()
+            self.clone_widget.geometry(f"{width}x{height}+{event.x_root}+{event.y_root}")
+        
+            # Ligar eventos para mover o clone com o rato
+            self.clone_widget.bind("<B1-Motion>", self.drag_motion)
+
+    def drag_motion(self, event):
+            """
+            Destaca a coluna ao passar sobre ela.
+            """
+            if self.clone_widget:
+            # Sincronizar a posição do clone com o mouse
+                width = self.clone_widget.winfo_width()
+                height = self.clone_widget.winfo_height()
+                self.clone_widget.geometry(f"{width}x{height}+{event.x_root}+{event.y_root}")
+
+    def drop_task(self, event):
+        """
+        Drops a task into the appropriate column and updates the UI.
+        """
+        # Detectar qual coluna está sob o cursor
+        for column_name, frame in self.column_frames.items():
+            if self.is_cursor_in_frame(event, frame):
+                to_column = column_name
+                break
+
+        if self.dragged_task and to_column:
+            # Verificar se a tarefa está sendo movida para uma nova coluna
+            if self.from_column and self.from_column != to_column:
+                self.board.move_task(self.dragged_task.title, self.from_column, to_column)
+                self.update_column_ui(self.from_column)
+                self.update_column_ui(to_column)
+
+        # Destruir o clone visual
+        if self.clone_widget:
+            self.clone_widget.destroy()
+            self.clone_widget = None
+
+        # Limpar as referências internas
+        self.dragged_task = None
+        self.dragged_task_widget = None
+
+        # Salvar automaticamente após a alteração
+        self.auto_save_board()
+    
+    def is_cursor_in_frame(self, event, frame):
+        """
+        Checks if the cursor is inside the given frame.
+        """
+        x1, y1, x2, y2 = (frame.winfo_rootx(), frame.winfo_rooty(),
+                          frame.winfo_rootx() + frame.winfo_width(),
+                          frame.winfo_rooty() + frame.winfo_height())
+        return x1 <= event.x_root <= x2 and y1 <= event.y_root <= y2
 
 if __name__ == "__main__":
     app = KanbanApp()

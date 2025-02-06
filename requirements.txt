@@ -1,4 +1,0 @@
-tkinter
-json
-ttkthemes
-requests
